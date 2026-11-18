@@ -1,0 +1,54 @@
+{
+    "name": "vensas/hypaxel",
+    "description": "High-performance, constant-memory streaming XLSX (Excel) writer for PHP. Pure PHP, no extensions beyond zlib.",
+    "type": "library",
+    "keywords": ["xlsx", "excel", "spreadsheet", "streaming", "writer", "export", "ooxml", "openxml", "performance"],
+    "homepage": "https://github.com/vensas/hypaxel",
+    "license": "Apache-2.0",
+    "authors": [
+        {
+            "name": "vensas GmbH",
+            "homepage": "https://github.com/vensas"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/vensas/hypaxel/issues",
+        "source": "https://github.com/vensas/hypaxel"
+    },
+    "require": {
+        "php": ">=8.2",
+        "php-64bit": "*",
+        "ext-zlib": "*"
+    },
+    "require-dev": {
+        "ext-zip": "*",
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "openspout/openspout": "^4.24 || ^5.0",
+        "phpoffice/phpspreadsheet": "^4.0 || ^5.0",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Vensas\\Hypaxel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Vensas\\Hypaxel\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:coverage": "phpunit --coverage-text --coverage-clover=build/clover.xml",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs:fix": "php-cs-fixer fix",
+        "bench": "@php benchmarks/bench.php",
+        "check": ["@cs", "@analyse", "@test"]
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
