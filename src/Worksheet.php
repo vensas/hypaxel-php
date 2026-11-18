@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 namespace Vensas\Hypaxel;
 
+use Vensas\Hypaxel\Exception\DuplicateTableNameException;
 use Vensas\Hypaxel\Exception\InvalidArgumentException;
 use Vensas\Hypaxel\Exception\LimitExceededException;
+use Vensas\Hypaxel\Exception\OverlappingRangeException;
 use Vensas\Hypaxel\Exception\UnsupportedValueException;
 use Vensas\Hypaxel\Exception\WriterStateException;
+use Vensas\Hypaxel\Internal\ColumnFit;
+use Vensas\Hypaxel\Internal\Parts;
 use Vensas\Hypaxel\Internal\SharedStrings;
 use Vensas\Hypaxel\Internal\SheetInfo;
 use Vensas\Hypaxel\Internal\StyleRegistry;
+use Vensas\Hypaxel\Internal\TableDefinition;
 use Vensas\Hypaxel\Internal\Workbook;
 use Vensas\Hypaxel\Internal\Xml;
 use Vensas\Hypaxel\Internal\ZipStream;
@@ -27,8 +32,9 @@ final class Worksheet
     public const MAX_COLUMNS = 16_384;
     public const MAX_CELL_CHARACTERS = 32_767;
 
+    public const MAX_OUTLINE_LEVEL = 7;
+
     private const XML_BUFFER_SIZE = 65_536;
-    private const DEFAULT_COLUMN_WIDTH = 9.140625;
     private const MAX_ROW_HEIGHT = 409.0;
     private const SECONDS_PER_DAY = 86_400;
     /** Seconds from 1899-12-30 (day 0 of the 1900 system) to the Unix epoch. */
@@ -45,10 +51,26 @@ final class Worksheet
     private int $row = 0;
     private int $column = 0;
     private bool $rowOpen = false;
-    private bool $completed = false;
 
-    /** @var list<string> */
+    /**
+     * The open row was started with {@see beginRow()}: until it has a cell, the next whole-row
+     * write fills it instead of starting another row.
+     */
+    private bool $rowExplicit = false;
+
+    /** Opening tag of the explicitly started row. */
+    private string $rowTag = '';
+    private bool $completed = false;
+    private readonly int $outlineLevels;
+
+    /** Present while the auto-fit sample is held back. */
+    private ?ColumnFit $fit = null;
+
+    /** @var list<array{int, int, int, int}> */
     private array $merges = [];
+
+    /** @var list<TableDefinition> */
+    private array $tables = [];
 
     /** @var array<int, array<int, int>> value kind => style index => style index with a date format */
     private array $variants = [[], [], []];
@@ -83,6 +105,7 @@ final class Worksheet
         $this->date1904 = $workbook->options->date1904;
         // json_encode() yields the shortest round-trip form of a double unless this setting was lowered.
         $this->exactFloats = \in_array(\ini_get('serialize_precision'), ['-1', '17'], true);
+        $this->outlineLevels = $options->rowOutlineLevels;
         $this->buffer = $this->header($options, $first);
     }
 
@@ -169,7 +192,7 @@ final class Worksheet
     {
         $this->assertWritable();
         if (!$this->rowOpen) {
-            $this->openRow($this->nextRow(), null, 0);
+            $this->openRow($this->nextRow());
         }
         $column = $this->column + 1;
         if ($column > self::MAX_COLUMNS) {
@@ -187,21 +210,36 @@ final class Worksheet
     }
 
     /**
-     * Starts the next row explicitly, e.g. to give it a height or a row format.
+     * Starts the next row explicitly, e.g. to give it a height, a row format or an outline level.
+     * Cells follow with {@see write()}, or the next {@see writeRow()}, {@see writeRows()} or
+     * {@see writeRecords()} fills the row as long as it has no cells yet.
      *
-     * @param float|null   $height in points, 0..409
-     * @param StyleId|null $style  format of the row's empty cells
+     * @param float|null   $height       in points, 0..409
+     * @param StyleId|null $style        format of the row's empty cells
+     * @param int          $outlineLevel grouping level 0..7, at most {@see SheetOptions::$rowOutlineLevels}
+     * @param bool         $collapsed    marks the summary row of a collapsed group (hide the group's rows)
      */
-    public function beginRow(?float $height = null, ?StyleId $style = null): self
-    {
-        return $this->beginRowAt($this->row + 1, $height, $style);
+    public function beginRow(
+        ?float $height = null,
+        ?StyleId $style = null,
+        int $outlineLevel = 0,
+        bool $hidden = false,
+        bool $collapsed = false,
+    ): self {
+        return $this->beginRowAt($this->row + 1, $height, $style, $outlineLevel, $hidden, $collapsed);
     }
 
     /**
      * Starts the row with the given 1-based number, which must be greater than any row written so far.
      */
-    public function beginRowAt(int $row, ?float $height = null, ?StyleId $style = null): self
-    {
+    public function beginRowAt(
+        int $row,
+        ?float $height = null,
+        ?StyleId $style = null,
+        int $outlineLevel = 0,
+        bool $hidden = false,
+        bool $collapsed = false,
+    ): self {
         $this->assertWritable();
         if ($row < 1 || $row > self::MAX_ROWS) {
             throw self::rowOutOfRange($row);
@@ -212,12 +250,29 @@ final class Worksheet
         if ($height !== null && !($height >= 0.0 && $height <= self::MAX_ROW_HEIGHT)) {
             throw new InvalidArgumentException('Row height must be within 0..409 points.');
         }
+        if ($outlineLevel < 0 || $outlineLevel > self::MAX_OUTLINE_LEVEL) {
+            throw new InvalidArgumentException('Row outline level must be within 0..7.');
+        }
+        if ($outlineLevel > $this->outlineLevels) {
+            throw new InvalidArgumentException(\sprintf(
+                'Row outline level %d exceeds the worksheet\'s declared depth of %d; declare the deepest level with new SheetOptions(rowOutlineLevels: ...) when adding the worksheet.',
+                $outlineLevel,
+                $this->outlineLevels,
+            ));
+        }
         $styleIndex = $this->styleIndex($style);
         if ($this->rowOpen) {
             $this->closeRow();
         }
         $this->references = $this->references || $row !== $this->row + 1;
-        $this->openRow($row, $height, $styleIndex);
+        $this->rowTag = '<row r="' . $row . '"'
+            . ($height === null ? '' : ' ht="' . Xml::float($height) . '" customHeight="1"')
+            . ($styleIndex === 0 ? '' : ' s="' . $styleIndex . '" customFormat="1"')
+            . ($hidden ? ' hidden="1"' : '')
+            . ($outlineLevel > 0 ? ' outlineLevel="' . $outlineLevel . '"' : '')
+            . ($collapsed ? ' collapsed="1"' : '') . '>';
+        $this->openRow($row, $this->rowTag);
+        $this->rowExplicit = true;
 
         return $this;
     }
@@ -248,7 +303,7 @@ final class Worksheet
             throw new InvalidArgumentException('Cannot skip a negative number of cells.');
         }
         if (!$this->rowOpen) {
-            $this->openRow($this->nextRow(), null, 0);
+            $this->openRow($this->nextRow());
         }
         if ($this->column + $count > self::MAX_COLUMNS) {
             throw self::tooManyColumns($this->row);
@@ -287,7 +342,13 @@ final class Worksheet
         if ($firstRow === $lastRow && $firstColumn === $lastColumn) {
             throw new InvalidArgumentException('A merged range must span more than one cell.');
         }
-        $this->merges[] = Xml::range($firstRow, $firstColumn, $lastRow, $lastColumn);
+        $range = [$firstRow, $firstColumn, $lastRow, $lastColumn];
+        foreach ($this->tables as $table) {
+            if (TableDefinition::overlaps($table->range, $range)) {
+                throw new OverlappingRangeException('Merged cells cannot overlap a table.');
+            }
+        }
+        $this->merges[] = $range;
 
         return $this;
     }
@@ -299,7 +360,50 @@ final class Worksheet
     {
         $this->assertWritable();
         self::assertRange($firstRow, $firstColumn, $lastRow, $lastColumn);
-        $this->info->autoFilter = [$firstRow, $firstColumn, $lastRow, $lastColumn];
+        $range = [$firstRow, $firstColumn, $lastRow, $lastColumn];
+        foreach ($this->tables as $table) {
+            if (TableDefinition::overlaps($table->range, $range)) {
+                throw new OverlappingRangeException('A worksheet auto filter cannot overlap a table (tables have their own filter).');
+            }
+        }
+        $this->info->autoFilter = $range;
+
+        return $this;
+    }
+
+    /**
+     * Adds an Excel table over a range of this worksheet. The cells can be written before or after;
+     * the definition is kept in memory until the worksheet completes.
+     *
+     * @throws InvalidArgumentException            for an invalid range, style or column names
+     * @throws Exception\InvalidTableNameException  for a name that breaks Excel's defined-name rules
+     * @throws DuplicateTableNameException          when the workbook already has a table of that name
+     * @throws OverlappingRangeException            when the range overlaps a table, merged cells or the auto filter
+     */
+    public function addTable(Table $table): self
+    {
+        $this->assertWritable();
+        $definition = TableDefinition::create($table, $this->workbook->tableCount + 1);
+        $folded = Xml::foldCase($definition->name);
+        if (isset($this->workbook->tableNames[$folded])) {
+            throw new DuplicateTableNameException(\sprintf('A table named "%s" already exists (table names are unique in the workbook and case-insensitive).', $definition->name));
+        }
+        foreach ($this->tables as $other) {
+            if (TableDefinition::overlaps($other->range, $definition->range)) {
+                throw new OverlappingRangeException('Tables cannot overlap each other.');
+            }
+        }
+        foreach ($this->merges as $merge) {
+            if (TableDefinition::overlaps($merge, $definition->range)) {
+                throw new OverlappingRangeException('A table cannot overlap merged cells.');
+            }
+        }
+        if ($this->info->autoFilter !== null && TableDefinition::overlaps($this->info->autoFilter, $definition->range)) {
+            throw new OverlappingRangeException('A table cannot overlap the worksheet auto filter (tables have their own filter).');
+        }
+        ++$this->workbook->tableCount;
+        $this->workbook->tableNames[$folded] = true;
+        $this->tables[] = $definition;
 
         return $this;
     }
@@ -315,6 +419,9 @@ final class Worksheet
         if ($this->rowOpen) {
             $this->closeRow();
         }
+        if ($this->fit !== null) {
+            $this->buffer = $this->endFit($this->buffer);
+        }
         $this->completed = true;
 
         $x = $this->buffer . '</sheetData>';
@@ -325,13 +432,35 @@ final class Worksheet
         if ($this->merges !== []) {
             $x .= '<mergeCells count="' . \count($this->merges) . '">';
             foreach ($this->merges as $range) {
-                $x .= '<mergeCell ref="' . $range . '"/>';
+                $x .= '<mergeCell ref="' . Xml::range(...$range) . '"/>';
             }
             $x .= '</mergeCells>';
             $this->merges = [];
         }
-        $this->zip->write($x . '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>');
+        $x .= '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>';
+        $tables = $this->tables;
+        $this->tables = [];
+        if ($tables !== []) {
+            $x .= '<tableParts count="' . \count($tables) . '">';
+            foreach ($tables as $i => $table) {
+                $x .= '<tablePart r:id="rId' . ($i + 1) . '"/>';
+            }
+            $x .= '</tableParts>';
+        }
+        $this->zip->write($x . '</worksheet>');
         $this->zip->finishEntry();
+
+        if ($tables !== []) {
+            foreach ($tables as $table) {
+                $this->zip->startEntry('xl/tables/table' . $table->id . '.xml');
+                $this->zip->write($table->toXml());
+                $this->zip->finishEntry();
+            }
+            $sheet = \array_search($this->info, $this->workbook->sheets, true);
+            $this->zip->startEntry('xl/worksheets/_rels/sheet' . ((int) $sheet + 1) . '.xml.rels');
+            $this->zip->write(Parts::sheetRels($tables));
+            $this->zip->finishEntry();
+        }
     }
 
     /**
@@ -345,14 +474,26 @@ final class Worksheet
     private function writeMany(iterable $items, int $style, ?array $fields, ?array $columnStyles): int
     {
         $this->assertWritable();
+        // An explicitly started row without cells takes the first row; its tag is restored if no row is written.
+        $tag = null;
+        $tagRow = 0;
         if ($this->rowOpen) {
-            $this->closeRow();
+            if ($this->rowExplicit && $this->column === 0) {
+                $tag = $this->rowTag;
+                $tagRow = $this->row;
+                $this->buffer = \substr($this->buffer, 0, -\strlen($tag));
+                $this->rowOpen = false;
+                $this->rowExplicit = false;
+                --$this->row;
+            } else {
+                $this->closeRow();
+            }
         }
 
         $references = $this->references;
         $shared = $this->sharedStrings;
         $exactFloats = $this->exactFloats;
-        $plain = $style === 0 && $columnStyles === null;
+        $plain = $style === 0 && $columnStyles === null && $this->fit === null;
         $names = [];
         $zip = $this->zip;
         $row = $this->row;
@@ -373,7 +514,7 @@ final class Worksheet
                 $r = $row + 1;
 
                 if ($plain) {
-                    $x = '<row r="' . $r . '">';
+                    $x = $tag ?? '<row r="' . $r . '">';
                     $column = 0;
                     $gap = $references;
                     foreach ($values as $v) {
@@ -442,17 +583,28 @@ final class Worksheet
                     }
                     $buffer .= $x . '</row>';
                 } else {
-                    $buffer .= $this->styledRow($values, $r, $style, $columnStyles);
+                    $buffer .= ($tag ?? '<row r="' . $r . '">') . $this->styledRow($values, $r, $style, $columnStyles);
+                    if ($this->fit !== null && $this->fit->rowDone(\strlen($buffer))) {
+                        $buffer = $this->endFit($buffer);
+                        $plain = $style === 0 && $columnStyles === null;
+                    }
                 }
 
+                $tag = null;
                 $row = $r;
                 ++$count;
-                if (isset($buffer[self::XML_BUFFER_SIZE])) {
+                if (isset($buffer[self::XML_BUFFER_SIZE]) && $this->fit === null) {
                     $zip->write($buffer);
                     $buffer = '';
                 }
             }
         } finally {
+            if ($tag !== null) {
+                $buffer .= $tag;
+                $row = $tagRow;
+                $this->rowOpen = true;
+                $this->rowExplicit = true;
+            }
             $this->buffer = $buffer;
             $this->row = $row;
         }
@@ -466,7 +618,7 @@ final class Worksheet
      */
     private function styledRow(iterable $values, int $row, int $style, ?array $columnStyles): string
     {
-        $x = '<row r="' . $row . '">';
+        $x = '';
         $column = 0;
         $gap = $this->references;
         foreach ($values as $v) {
@@ -495,18 +647,24 @@ final class Worksheet
     {
         $a = $style === 0 ? '' : ' s="' . $style . '"';
         if (\is_string($v)) {
-            return $this->textTail($v, $a, $row, $column);
+            return $this->textTail($v, $a, $row, $column, $style);
         }
         if (\is_int($v)) {
+            $this->fit?->number($style, $column, $v);
+
             return $a . '><v>' . $v . '</v></c>';
         }
         if (\is_float($v)) {
+            $this->fit?->number($style, $column, $v);
+
             return \is_finite($v) ? $a . '><v>' . Xml::float($v) . '</v></c>' : $a . ' t="e"><v>#NUM!</v></c>';
         }
         if ($v === null) {
             return $style === 0 ? '' : $a . '/>';
         }
         if (\is_bool($v)) {
+            $this->fit?->text($style, $column, $v ? 'TRUE' : 'FALSE');
+
             return $a . ($v ? ' t="b"><v>1</v></c>' : ' t="b"><v>0</v></c>');
         }
         if ($v instanceof \DateTimeInterface) {
@@ -522,17 +680,19 @@ final class Worksheet
         }
         if ($v instanceof \DateInterval) {
             $variant = $this->variant($style, StyleRegistry::KIND_DURATION);
+            $days = self::intervalDays($v, $row, $column);
+            $this->fit?->number($variant, $column, $days);
 
-            return ($variant === 0 ? '' : ' s="' . $variant . '"') . '><v>' . Xml::float(self::intervalDays($v, $row, $column)) . '</v></c>';
+            return ($variant === 0 ? '' : ' s="' . $variant . '"') . '><v>' . Xml::float($days) . '</v></c>';
         }
         if ($v instanceof \BackedEnum) {
             return $this->cellTail($v->value, $style, $row, $column);
         }
         if ($v instanceof \UnitEnum) {
-            return $this->textTail($v->name, $a, $row, $column);
+            return $this->textTail($v->name, $a, $row, $column, $style);
         }
         if ($v instanceof \Stringable) {
-            return $this->textTail((string) $v, $a, $row, $column);
+            return $this->textTail((string) $v, $a, $row, $column, $style);
         }
 
         throw new UnsupportedValueException(\sprintf(
@@ -543,11 +703,12 @@ final class Worksheet
         ));
     }
 
-    private function textTail(string $v, string $a, int $row, int $column): string
+    private function textTail(string $v, string $a, int $row, int $column, int $style = 0): string
     {
         if (isset($v[self::MAX_CELL_CHARACTERS])) {
             self::assertTextLength($v, $row, $column);
         }
+        $this->fit?->text($style, $column, $v);
         $shared = $this->sharedStrings;
         if ($shared !== null) {
             ++$shared->references;
@@ -591,6 +752,7 @@ final class Worksheet
             if ($valid) {
                 if ($fraction === 0) {
                     $variant = $this->variants[StyleRegistry::KIND_DATE][$style] ?? $this->variant($style, StyleRegistry::KIND_DATE);
+                    $this->fit?->number($variant, $column, $day);
 
                     return ($variant === 0 ? '' : ' s="' . $variant . '"') . '><v>' . $day . '</v></c>';
                 }
@@ -599,6 +761,7 @@ final class Worksheet
                     $digits = \rtrim($digits, '0');
                 }
                 $variant = $this->variants[StyleRegistry::KIND_DATETIME][$style] ?? $this->variant($style, StyleRegistry::KIND_DATETIME);
+                $this->fit?->number($variant, $column, $day);
 
                 return ($variant === 0 ? '' : ' s="' . $variant . '"') . '><v>' . $day . '.' . $digits . '</v></c>';
             }
@@ -606,7 +769,7 @@ final class Worksheet
 
         $format = $micro !== 0 ? 'Y-m-d\TH:i:s.u' : ($v->format('His') === '000000' ? 'Y-m-d' : 'Y-m-d\TH:i:s');
 
-        return $this->textTail($v->format($format), $style === 0 ? '' : ' s="' . $style . '"', $row, $column);
+        return $this->textTail($v->format($format), $style === 0 ? '' : ' s="' . $style . '"', $row, $column, $style);
     }
 
     private function variant(int $style, int $kind): int
@@ -657,10 +820,14 @@ final class Worksheet
         if ($o->freezeRows < 0 || $o->freezeRows >= self::MAX_ROWS || $o->freezeColumns < 0 || $o->freezeColumns >= self::MAX_COLUMNS) {
             throw new InvalidArgumentException('Frozen panes are out of range.');
         }
+        if ($o->rowOutlineLevels < 0 || $o->rowOutlineLevels > self::MAX_OUTLINE_LEVEL) {
+            throw new InvalidArgumentException('Row outline levels must be within 0..7.');
+        }
 
         $x = Xml::DECLARATION . '<worksheet xmlns="' . Xml::NS_MAIN . '" xmlns:r="' . Xml::NS_REL . '">';
-        if ($o->tabColor !== null) {
-            $x .= '<sheetPr><tabColor rgb="' . $o->tabColor->toHex() . '"/></sheetPr>';
+        if ($o->tabColor !== null || $o->outlineSummaryAbove) {
+            $x .= '<sheetPr>' . ($o->tabColor === null ? '' : '<tabColor rgb="' . $o->tabColor->toHex() . '"/>')
+                . ($o->outlineSummaryAbove ? '<outlinePr summaryBelow="0"/>' : '') . '</sheetPr>';
         }
         $x .= '<sheetViews><sheetView workbookViewId="0"' . ($first ? ' tabSelected="1"' : '') . ($o->showGridLines ? '' : ' showGridLines="0"');
         if ($o->freezeRows > 0 || $o->freezeColumns > 0) {
@@ -672,17 +839,17 @@ final class Worksheet
         } else {
             $x .= '/></sheetViews>';
         }
-        $x .= '<sheetFormatPr defaultRowHeight="15"/>';
+        $x .= '<sheetFormatPr defaultRowHeight="15"'
+            . ($o->rowOutlineLevels > 0 ? ' outlineLevelRow="' . $o->rowOutlineLevels . '"' : '') . '/>';
 
         $columns = $this->columns($o);
-        if ($columns !== []) {
+        if ($o->autoFit !== null) {
+            // <cols> is inserted here once the sample has been measured.
+            $this->fit = new ColumnFit($this->styles, $o->autoFit, $columns, \strlen($x));
+        } elseif ($columns !== []) {
             $x .= '<cols>';
             foreach ($columns as $index => [$width, $style, $hidden]) {
-                $x .= '<col min="' . $index . '" max="' . $index . '" width="'
-                    . Xml::float($width === null ? self::DEFAULT_COLUMN_WIDTH : \max(0.0, \min(255.0, $width))) . '"'
-                    . ($width === null ? '' : ' customWidth="1"')
-                    . ($style === 0 ? '' : ' style="' . $style . '"')
-                    . ($hidden ? ' hidden="1"' : '') . '/>';
+                $x .= ColumnFit::col($index, $width, $style, $hidden);
             }
             $x .= '</cols>';
         }
@@ -717,26 +884,41 @@ final class Worksheet
         return $columns;
     }
 
-    private function openRow(int $row, ?float $height, int $style): void
+    private function openRow(int $row, ?string $tag = null): void
     {
         $this->row = $row;
         $this->column = 0;
         $this->rowReferences = $this->references;
         $this->rowOpen = true;
-        $this->buffer .= '<row r="' . $row . '"'
-            . ($height === null ? '' : ' ht="' . Xml::float($height) . '" customHeight="1"')
-            . ($style === 0 ? '' : ' s="' . $style . '" customFormat="1"') . '>';
+        $this->buffer .= $tag ?? '<row r="' . $row . '">';
     }
 
     private function closeRow(): void
     {
         $this->rowOpen = false;
+        $this->rowExplicit = false;
         $this->column = 0;
         $this->buffer .= '</row>';
-        if (isset($this->buffer[self::XML_BUFFER_SIZE])) {
+        if ($this->fit !== null && $this->fit->rowDone(\strlen($this->buffer))) {
+            $this->buffer = $this->endFit($this->buffer);
+        }
+        if (isset($this->buffer[self::XML_BUFFER_SIZE]) && $this->fit === null) {
             $this->zip->write($this->buffer);
             $this->buffer = '';
         }
+    }
+
+    /**
+     * Inserts the fitted `<cols>` into the held-back XML; streaming resumes from here.
+     */
+    private function endFit(string $buffer): string
+    {
+        \assert($this->fit !== null);
+        $position = $this->fit->position;
+        $cols = $this->fit->cols();
+        $this->fit = null;
+
+        return \substr($buffer, 0, $position) . $cols . \substr($buffer, $position);
     }
 
     private function nextRow(): int

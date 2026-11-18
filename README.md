@@ -209,9 +209,10 @@ Worksheets are written one at a time: adding a worksheet completes the previous 
 | `writeRows(iterable $rows, ?StyleId $style): int` | Many rows from any iterable; returns the count |
 | `writeRecords(iterable $records, array $columns): int` | One row per array or object, taking `$columns` in order |
 | `write($value, ?StyleId $style)`, `endRow()` | Cell-by-cell writing (chainable) |
-| `beginRow(?float $height, ?StyleId $style)`, `beginRowAt($row, ...)` | Start a row with a height or row format, or further down |
+| `beginRow(height:, style:, outlineLevel:, hidden:, collapsed:)`, `beginRowAt($row, ...)` | Start a row with a height, row format or outline level, or further down |
 | `skipCells($n)`, `skipRows($n)` | Leave cells or rows empty |
 | `mergeCells($r1, $c1, $r2, $c2)`, `autoFilter($r1, $c1, $r2, $c2)` | Ranges, 1-based and inclusive |
+| `addTable(Table $table)` | An Excel table over a range, see [Excel tables](#excel-tables) |
 | `row()`, `column()` | Current position |
 
 **Cell values**
@@ -265,8 +266,71 @@ new SheetOptions(
     showGridLines: true,
     hidden: false,
     tabColor: '#305496',
+    rowOutlineLevels: 0,           // deepest row outline level used, see Row groups
+    outlineSummaryAbove: false,    // group buttons on the summary row above the group
+    autoFit: false,                // true or new AutoFit(...), see Auto-fit columns
 );
 ```
+
+## Row groups
+
+Rows started with `beginRow()` can carry an outline level (1-7), which Excel shows as
+collapsible groups. Excel sizes the outline bar before it reads any row, so declare the deepest
+level when adding the worksheet; a deeper row throws an `InvalidArgumentException`.
+
+```php
+$sheet = $writer->addWorksheet('Regions', new SheetOptions(rowOutlineLevels: 2, outlineSummaryAbove: true));
+$sheet->writeRow(['North', 300]);
+$sheet->beginRow(outlineLevel: 1)->writeRow(['Store A', 120]);
+$sheet->beginRow(outlineLevel: 2, hidden: true)->writeRow(['Till 1', 60]);
+$sheet->beginRow(outlineLevel: 1, collapsed: true)->writeRow(['Store B', 180]);
+```
+
+A row started with `beginRow()` that has no cells yet is filled by the next `writeRow()`,
+`writeRows()` or `writeRecords()`; once it has cells, those start a new row as before.
+`hidden` hides the row, `collapsed` marks the summary row of a collapsed group (hide the group's
+rows as well).
+
+## Excel tables
+
+```php
+use Vensas\Hypaxel\{Table, TableStyle};
+
+$sheet->writeRow(['Product', 'Units']);
+$sheet->writeRows([['Widget', 3], ['Gadget', 5]]);
+$sheet->addTable(new Table(1, 1, $sheet->row(), 2, name: 'Orders', columns: ['Product', 'Units'], style: TableStyle::medium(9)));
+```
+
+A table gives a range a name for structured references (`=SUM(Orders[Units])`), filter buttons
+and banded formatting. With a header row (the default), `columns` must repeat the header texts
+exactly as written: Excel identifies table columns by them and repairs the file otherwise. Without
+one (`headerRow: false`) the columns are named `Column1`, `Column2`, ... unless given.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `name` | `Table1`, `Table2`, ... | Unique in the workbook (case-insensitive); letters, digits, `_`, `.`, no cell references such as `A1` or `R1C1` |
+| `columns` | | Column names: unique, 1-255 characters, one per column of the range |
+| `style` | `TableStyle::default()` (Medium 2) | `TableStyle::none()`, `light(1..21)`, `medium(1..28)`, `dark(1..11)` |
+| `headerRow`, `autoFilter`, `rowStripes` | `true` | Header row, its filter buttons, banded rows |
+| `columnStripes`, `highlightFirstColumn`, `highlightLastColumn` | `false` | Banded columns, emphasized first/last column |
+
+Tables may not overlap each other, merged cells or the worksheet's `autoFilter()` range: such
+calls throw an `OverlappingRangeException`. Invalid names throw `InvalidTableNameException`,
+taken ones `DuplicateTableNameException`. Definitions are kept in memory until the worksheet completes.
+
+## Auto-fit columns
+
+```php
+$sheet = $writer->addWorksheet('Report', new SheetOptions(autoFit: true, columnWidths: [null, 12]));
+```
+
+Column widths come before the cells in the file, so with `autoFit` the worksheet's XML is held
+back until the sample has been written: `new AutoFit(sampleRows: 1000, maxWidth: 255.0)` by
+default, and at most 8 MiB of XML. The widths are then estimated from the sampled cells and
+streaming continues; rows after the sample are not measured. Text (its longest line), numbers,
+booleans and dates are measured with their number format, font size and boldness; formulas and
+empty cells are not. Columns with an explicit width keep it. With `autoFit` off, nothing is held
+back.
 
 ## Options
 
@@ -305,7 +369,8 @@ fixed number of days.
   them throws a `LimitExceededException`. A row rejected by `writeRow`/`writeRows` is not written
   at all, so the file stays valid if you catch the exception and continue.
 - **Exceptions** all extend `Vensas\Hypaxel\Exception\XlsxException`: `InvalidArgumentException`,
-  `InvalidSheetNameException`, `DuplicateSheetNameException`, `LimitExceededException`,
+  `InvalidSheetNameException`, `DuplicateSheetNameException`, `InvalidTableNameException`,
+  `DuplicateTableNameException`, `OverlappingRangeException`, `LimitExceededException`,
   `UnsupportedValueException`, `WriterStateException`, `IoException`.
 - **Text encoding:** strings must be UTF-8. Invalid byte sequences are replaced with U+FFFD
   instead of producing a file Excel refuses to open. Control characters and carriage returns are
@@ -322,7 +387,7 @@ fixed number of days.
 - **Records:** arrays, `ArrayAccess` objects and public properties are read by key. Use a
   `ColumnSpec` with a `value` callable for getters: `new ColumnSpec('total', value: fn (Order $o) => $o->total())`.
 - **Styles** belong to the writer that created them.
-- **Merged cells** are kept in memory until their worksheet completes.
+- **Merged cells** and tables are kept in memory until their worksheet completes.
 
 ## Performance
 

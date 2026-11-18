@@ -142,6 +142,25 @@ final class StyleRegistry
         return $this->variants[$key] = $id;
     }
 
+    /**
+     * What a style's rendering width depends on: font size in points, bold, and the number format
+     * as a built-in id or a custom code.
+     *
+     * @return array{float, bool, int|string}
+     */
+    public function measureInfo(int $style): array
+    {
+        $xf = $this->xfs[$style] ?? $this->xfs[0];
+        $font = $this->fonts[$xf['font']];
+        $format = $xf['numberFormat'];
+        if ($format >= self::FIRST_CUSTOM_FORMAT) {
+            $code = \array_search($format, $this->numberFormatIds, true);
+            $format = $code === false ? 0 : (string) $code;
+        }
+
+        return [$font->size, $font->bold, $format];
+    }
+
     public function toXml(): string
     {
         $x = Xml::DECLARATION . '<styleSheet xmlns="' . Xml::NS_MAIN . '">';

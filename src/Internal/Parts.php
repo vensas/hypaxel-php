@@ -69,7 +69,7 @@ final class Parts
         return $x . '</Relationships>';
     }
 
-    public static function contentTypes(int $sheetCount, bool $sharedStrings): string
+    public static function contentTypes(int $sheetCount, int $tableCount, bool $sharedStrings): string
     {
         $x = Xml::DECLARATION . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
             . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
@@ -79,11 +79,27 @@ final class Parts
             $x .= '<Override PartName="/xl/worksheets/sheet' . $i . '.xml" ContentType="' . self::CONTENT . 'worksheet+xml"/>';
         }
         $x .= '<Override PartName="/xl/styles.xml" ContentType="' . self::CONTENT . 'styles+xml"/>';
+        for ($i = 1; $i <= $tableCount; ++$i) {
+            $x .= '<Override PartName="/xl/tables/table' . $i . '.xml" ContentType="' . self::CONTENT . 'table+xml"/>';
+        }
         if ($sharedStrings) {
             $x .= '<Override PartName="/xl/sharedStrings.xml" ContentType="' . self::CONTENT . 'sharedStrings+xml"/>';
         }
 
         return $x . '</Types>';
+    }
+
+    /**
+     * @param list<TableDefinition> $tables
+     */
+    public static function sheetRels(array $tables): string
+    {
+        $x = Xml::DECLARATION . '<Relationships xmlns="' . self::PACKAGE_REL . '">';
+        foreach ($tables as $i => $table) {
+            $x .= '<Relationship Id="rId' . ($i + 1) . '" Type="' . self::REL . '/table" Target="../tables/table' . $table->id . '.xml"/>';
+        }
+
+        return $x . '</Relationships>';
     }
 
     public static function rootRels(): string

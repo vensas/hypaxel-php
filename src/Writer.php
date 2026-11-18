@@ -112,9 +112,9 @@ final class Writer
     {
         $this->assertOpen();
         self::assertSheetName($name);
-        $folded = self::foldCase($name);
+        $folded = Xml::foldCase($name);
         foreach ($this->workbook->sheets as $sheet) {
-            if (self::foldCase($sheet->name) === $folded) {
+            if (Xml::foldCase($sheet->name) === $folded) {
                 throw new DuplicateSheetNameException(\sprintf('A worksheet named "%s" already exists.', $name));
             }
         }
@@ -236,7 +236,7 @@ final class Writer
         $this->writePart('xl/styles.xml', $workbook->styles->toXml());
         $this->writePart('xl/workbook.xml', Parts::workbook($workbook->sheets, $workbook->usesFormulas, $workbook->options->date1904));
         $this->writePart('xl/_rels/workbook.xml.rels', Parts::workbookRels($sheetCount, $shared));
-        $this->writePart('[Content_Types].xml', Parts::contentTypes($sheetCount, $shared));
+        $this->writePart('[Content_Types].xml', Parts::contentTypes($sheetCount, $workbook->tableCount, $shared));
         $this->writePart('_rels/.rels', Parts::rootRels());
         $this->zip->finish();
         $this->sink->close();
@@ -292,10 +292,5 @@ final class Writer
                 $name,
             ));
         }
-    }
-
-    private static function foldCase(string $name): string
-    {
-        return \function_exists('mb_strtolower') ? \mb_strtolower($name, 'UTF-8') : \strtolower($name);
     }
 }

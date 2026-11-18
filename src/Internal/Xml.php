@@ -82,6 +82,14 @@ final class Xml
         return $units;
     }
 
+    /**
+     * Case folding for names Excel compares case-insensitively.
+     */
+    public static function foldCase(string $name): string
+    {
+        return \function_exists('mb_strtolower') ? \mb_strtolower($name, 'UTF-8') : \strtolower($name);
+    }
+
     public static function columnName(int $column): string
     {
         return self::$columnNames[$column] ??= self::buildColumnName($column);

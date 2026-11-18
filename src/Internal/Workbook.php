@@ -17,6 +17,12 @@ final class Workbook
     public readonly ?SharedStrings $sharedStrings;
     public bool $usesFormulas = false;
 
+    /** Tables added so far; table ids are workbook-wide. */
+    public int $tableCount = 0;
+
+    /** @var array<string, true> case-folded table names */
+    public array $tableNames = [];
+
     /** @var list<SheetInfo> */
     public array $sheets = [];
 
