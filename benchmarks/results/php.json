@@ -1,0 +1,114 @@
+{
+  "id": "php",
+  "language": "php",
+  "title": "PHP: opcache off (CLI default)",
+  "dataset": "10 columns per row: integers, strings (one unique per row), floats, a date/time and a boolean, from a generator to a file. Each case runs in its own process",
+  "method": "Single runs while the machine was busy with other work. Peak memory is memory_get_peak_usage(true), including the autoloader and the library's classes.",
+  "environment": {
+    "hardware": "Apple M1 Max",
+    "os": "macOS 26.6",
+    "runtime": "PHP 8.4.8 (CLI, NTS)"
+  },
+  "versions": [
+    "OpenSpout 5.14.1",
+    "PhpSpreadsheet 5.11.0"
+  ],
+  "metrics": [
+    {
+      "id": "t100k",
+      "label": "100k rows",
+      "unit": "s",
+      "lowerIsBetter": true
+    },
+    {
+      "id": "mem100k",
+      "label": "Peak memory (100k)",
+      "unit": "MB",
+      "lowerIsBetter": true,
+      "memoryKind": "peakHeap"
+    },
+    {
+      "id": "t1m",
+      "label": "1M rows",
+      "unit": "s",
+      "lowerIsBetter": true
+    },
+    {
+      "id": "mem1m",
+      "label": "Peak memory (1M)",
+      "unit": "MB",
+      "lowerIsBetter": true,
+      "memoryKind": "peakHeap"
+    }
+  ],
+  "chartMetric": "t100k",
+  "rows": [
+    {
+      "label": "Hypaxel, rows",
+      "subject": true,
+      "values": {
+        "t100k": 0.42,
+        "mem100k": 4,
+        "t1m": 4.17,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "Hypaxel, records with header",
+      "subject": true,
+      "values": {
+        "t100k": 0.57,
+        "mem100k": 4,
+        "t1m": 5.38,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "Hypaxel, rows, shared strings",
+      "subject": true,
+      "values": {
+        "t100k": 0.44,
+        "mem100k": 13.5,
+        "t1m": 4.09,
+        "mem1m": 90
+      }
+    },
+    {
+      "label": "Hypaxel, rows, Xlsx::stream()",
+      "subject": true,
+      "values": {
+        "t100k": 0.45,
+        "mem100k": 4,
+        "t1m": 4.92,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "OpenSpout",
+      "subject": false,
+      "values": {
+        "t100k": 4.6,
+        "mem100k": 4,
+        "t1m": 47.83,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "PhpSpreadsheet",
+      "subject": false,
+      "values": {
+        "t100k": 17.2,
+        "mem100k": 661.1,
+        "t1m": null,
+        "mem1m": null
+      }
+    }
+  ],
+  "notes": [
+    "OpenSpout is a streaming writer too and uses as little memory as Hypaxel; the difference is time.",
+    "PhpSpreadsheet builds the workbook in memory and is not run at 1M rows.",
+    "The 1M-row file is 39 MB from Hypaxel and 52 MB from OpenSpout."
+  ],
+  "reproduce": "php benchmarks/bench.php                  # 100,000 rows\nphp benchmarks/bench.php 1000000",
+  "sourcePath": "php/benchmarks"
+}

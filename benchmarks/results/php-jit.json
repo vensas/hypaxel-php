@@ -1,0 +1,112 @@
+{
+  "id": "php-jit",
+  "language": "php",
+  "title": "PHP: opcache with tracing JIT",
+  "dataset": "10 columns per row: integers, strings (one unique per row), floats, a date/time and a boolean, from a generator to a file. Each case runs in its own process",
+  "method": "Single runs while the machine was busy with other work. Peak memory is memory_get_peak_usage(true), including the autoloader and the library's classes.",
+  "environment": {
+    "hardware": "Apple M1 Max",
+    "os": "macOS 26.6",
+    "runtime": "PHP 8.4.8 (CLI, NTS), opcache.enable_cli=1, opcache.jit=tracing, opcache.jit_buffer_size=128M"
+  },
+  "versions": [
+    "OpenSpout 5.14.1",
+    "PhpSpreadsheet 5.11.0"
+  ],
+  "metrics": [
+    {
+      "id": "t100k",
+      "label": "100k rows",
+      "unit": "s",
+      "lowerIsBetter": true
+    },
+    {
+      "id": "mem100k",
+      "label": "Peak memory (100k)",
+      "unit": "MB",
+      "lowerIsBetter": true,
+      "memoryKind": "peakHeap"
+    },
+    {
+      "id": "t1m",
+      "label": "1M rows",
+      "unit": "s",
+      "lowerIsBetter": true
+    },
+    {
+      "id": "mem1m",
+      "label": "Peak memory (1M)",
+      "unit": "MB",
+      "lowerIsBetter": true,
+      "memoryKind": "peakHeap"
+    }
+  ],
+  "chartMetric": "t100k",
+  "rows": [
+    {
+      "label": "Hypaxel, rows",
+      "subject": true,
+      "values": {
+        "t100k": 0.3,
+        "mem100k": 4,
+        "t1m": 2.93,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "Hypaxel, records with header",
+      "subject": true,
+      "values": {
+        "t100k": 0.37,
+        "mem100k": 4,
+        "t1m": 3.64,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "Hypaxel, rows, shared strings",
+      "subject": true,
+      "values": {
+        "t100k": 0.31,
+        "mem100k": 13.5,
+        "t1m": 3.07,
+        "mem1m": 90
+      }
+    },
+    {
+      "label": "Hypaxel, rows, Xlsx::stream()",
+      "subject": true,
+      "values": {
+        "t100k": 0.32,
+        "mem100k": 4,
+        "t1m": 3.18,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "OpenSpout",
+      "subject": false,
+      "values": {
+        "t100k": 4.11,
+        "mem100k": 4,
+        "t1m": 40.65,
+        "mem1m": 4
+      }
+    },
+    {
+      "label": "PhpSpreadsheet",
+      "subject": false,
+      "values": {
+        "t100k": 11.81,
+        "mem100k": 659.1,
+        "t1m": null,
+        "mem1m": null
+      }
+    }
+  ],
+  "notes": [
+    "PhpSpreadsheet builds the workbook in memory and is not run at 1M rows."
+  ],
+  "reproduce": "php benchmarks/bench.php 100000 --jit     # opcache + tracing JIT",
+  "sourcePath": "php/benchmarks"
+}
