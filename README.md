@@ -465,6 +465,11 @@ Coverage needs the `pcov` or `xdebug` extension: `composer test:coverage`.
 `composer.lock` is not committed, as usual for a library: CI resolves the newest dependencies
 each PHP version allows.
 
+The package is developed in the `php/` directory of the
+[Hypaxel monorepo](https://github.com/vensas/hypaxel), which is the place for issues and pull
+requests. The repository Packagist installs from is generated from that directory and is
+read-only ([how it is published](https://github.com/vensas/hypaxel/blob/main/docs/publishing-php.md)).
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE). Copyright 2026 vensas GmbH.
