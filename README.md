@@ -396,33 +396,32 @@ second int and a string that is unique per row) from a generator to a file. Each
 own PHP process; "peak memory" is `memory_get_peak_usage(true)` of that process, which includes
 the autoloader and the library's classes.
 
-Measured on an Apple M1 Max (macOS 26.6) with PHP 8.4.8 (CLI, NTS) against OpenSpout 5.14.1 and
+Measured on an Apple M1 Max (macOS 26.6) with PHP 8.4.8 (CLI, NTS) against OpenSpout 5.15.3 and
 PhpSpreadsheet 5.11.0.
 
 **opcache off** (the CLI default)
 
 | Case | 100k rows | Peak memory | 1M rows | Peak memory |
 | --- | ---: | ---: | ---: | ---: |
-| Hypaxel, rows | 0.42 s | 4.0 MB | 4.17 s | 4.0 MB |
-| Hypaxel, records with header | 0.57 s | 4.0 MB | 5.38 s | 4.0 MB |
-| Hypaxel, rows, shared strings | 0.44 s | 13.5 MB | 4.09 s | 90.0 MB |
-| Hypaxel, rows, `Xlsx::stream()` | 0.45 s | 4.0 MB | 4.92 s | 4.0 MB |
-| OpenSpout | 4.60 s | 4.0 MB | 47.83 s | 4.0 MB |
-| PhpSpreadsheet | 17.20 s | 661.1 MB | not run | not run |
+| Hypaxel, rows | 0.39 s | 4.0 MB | 3.85 s | 4.0 MB |
+| Hypaxel, records with header | 0.53 s | 4.0 MB | 5.28 s | 4.0 MB |
+| Hypaxel, rows, shared strings | 0.40 s | 13.5 MB | 4.01 s | 90.0 MB |
+| Hypaxel, rows, `Xlsx::stream()` | 0.43 s | 4.0 MB | 4.30 s | 4.0 MB |
+| OpenSpout | 4.53 s | 4.0 MB | 44.46 s | 4.0 MB |
+| PhpSpreadsheet | 16.38 s | 661.1 MB | not run | not run |
 
 **opcache with tracing JIT** (`opcache.enable_cli=1`, `opcache.jit=tracing`, `opcache.jit_buffer_size=128M`)
 
 | Case | 100k rows | Peak memory | 1M rows | Peak memory |
 | --- | ---: | ---: | ---: | ---: |
-| Hypaxel, rows | 0.30 s | 4.0 MB | 2.93 s | 4.0 MB |
-| Hypaxel, records with header | 0.37 s | 4.0 MB | 3.64 s | 4.0 MB |
-| Hypaxel, rows, shared strings | 0.31 s | 13.5 MB | 3.07 s | 90.0 MB |
-| Hypaxel, rows, `Xlsx::stream()` | 0.32 s | 4.0 MB | 3.18 s | 4.0 MB |
-| OpenSpout | 4.11 s | 4.0 MB | 40.65 s | 4.0 MB |
-| PhpSpreadsheet | 11.81 s | 659.1 MB | not run | not run |
+| Hypaxel, rows | 0.29 s | 4.0 MB | 2.87 s | 4.0 MB |
+| Hypaxel, records with header | 0.37 s | 4.0 MB | 3.55 s | 4.0 MB |
+| Hypaxel, rows, shared strings | 0.30 s | 13.5 MB | 2.99 s | 90.0 MB |
+| Hypaxel, rows, `Xlsx::stream()` | 0.31 s | 4.0 MB | 3.09 s | 4.0 MB |
+| OpenSpout | 3.95 s | 4.0 MB | 38.77 s | 4.0 MB |
+| PhpSpreadsheet | 10.98 s | 659.1 MB | not run | not run |
 
-These are single runs, taken while the machine was also busy with other work, so treat small
-differences as noise. OpenSpout is a streaming writer too
+These are single runs on an otherwise idle machine, so treat small differences as noise. OpenSpout is a streaming writer too
 and uses as little memory as Hypaxel; the difference is time. PhpSpreadsheet builds the workbook
 in memory and is not run at 1M rows. The 1M-row file is 39 MB from Hypaxel and 52 MB
 from OpenSpout.

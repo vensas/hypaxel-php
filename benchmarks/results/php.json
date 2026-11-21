@@ -3,14 +3,14 @@
   "language": "php",
   "title": "PHP: opcache off (CLI default)",
   "dataset": "10 columns per row: integers, strings (one unique per row), floats, a date/time and a boolean, from a generator to a file. Each case runs in its own process",
-  "method": "Single runs while the machine was busy with other work. Peak memory is memory_get_peak_usage(true), including the autoloader and the library's classes.",
+  "method": "Single runs on an otherwise idle machine. Peak memory is memory_get_peak_usage(true), including the autoloader and the library's classes.",
   "environment": {
     "hardware": "Apple M1 Max",
     "os": "macOS 26.6",
     "runtime": "PHP 8.4.8 (CLI, NTS)"
   },
   "versions": [
-    "OpenSpout 5.14.1",
+    "OpenSpout 5.15.3",
     "PhpSpreadsheet 5.11.0"
   ],
   "metrics": [
@@ -47,9 +47,9 @@
       "label": "Hypaxel, rows",
       "subject": true,
       "values": {
-        "t100k": 0.42,
+        "t100k": 0.39,
         "mem100k": 4,
-        "t1m": 4.17,
+        "t1m": 3.85,
         "mem1m": 4
       }
     },
@@ -57,9 +57,9 @@
       "label": "Hypaxel, records with header",
       "subject": true,
       "values": {
-        "t100k": 0.57,
+        "t100k": 0.53,
         "mem100k": 4,
-        "t1m": 5.38,
+        "t1m": 5.28,
         "mem1m": 4
       }
     },
@@ -67,9 +67,9 @@
       "label": "Hypaxel, rows, shared strings",
       "subject": true,
       "values": {
-        "t100k": 0.44,
+        "t100k": 0.4,
         "mem100k": 13.5,
-        "t1m": 4.09,
+        "t1m": 4.01,
         "mem1m": 90
       }
     },
@@ -77,9 +77,9 @@
       "label": "Hypaxel, rows, Xlsx::stream()",
       "subject": true,
       "values": {
-        "t100k": 0.45,
+        "t100k": 0.43,
         "mem100k": 4,
-        "t1m": 4.92,
+        "t1m": 4.3,
         "mem1m": 4
       }
     },
@@ -87,9 +87,9 @@
       "label": "OpenSpout",
       "subject": false,
       "values": {
-        "t100k": 4.6,
+        "t100k": 4.53,
         "mem100k": 4,
-        "t1m": 47.83,
+        "t1m": 44.46,
         "mem1m": 4
       }
     },
@@ -97,7 +97,7 @@
       "label": "PhpSpreadsheet",
       "subject": false,
       "values": {
-        "t100k": 17.2,
+        "t100k": 16.38,
         "mem100k": 661.1,
         "t1m": null,
         "mem1m": null
