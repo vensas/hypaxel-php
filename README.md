@@ -32,7 +32,7 @@ versions use the same design.
 ## Install
 
 ```bash
-composer require vensas/hypaxel        # not published yet: see "Development"
+composer require vensas/hypaxel
 ```
 
 Requires PHP 8.2 or later (64-bit) with `ext-zlib`.
