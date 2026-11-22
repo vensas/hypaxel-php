@@ -3,7 +3,7 @@
     "description": "High-performance, constant-memory streaming XLSX (Excel) writer for PHP. Pure PHP, no extensions beyond zlib.",
     "type": "library",
     "keywords": ["xlsx", "excel", "spreadsheet", "streaming", "writer", "export", "ooxml", "openxml", "performance"],
-    "homepage": "https://github.com/vensas/hypaxel",
+    "homepage": "https://hypaxel.libs.vensas.de",
     "license": "Apache-2.0",
     "authors": [
         {
