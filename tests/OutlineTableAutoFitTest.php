@@ -160,6 +160,31 @@ final class OutlineTableAutoFitTest extends XlsxTestCase
         self::assertSame(['Orders', 'Table2'], \array_values($tables));
     }
 
+    public function testCustomTableStyles(): void
+    {
+        self::assertEquals(TableStyle::custom('Corporate'), TableStyle::custom('Corporate'));
+        self::assertNotEquals(TableStyle::custom('Corporate'), TableStyle::custom('corporate'));
+        self::assertSame(' Brand & "Co" ', TableStyle::custom(' Brand & "Co" ')->name);
+
+        $bytes = $this->build(static function (Writer $writer): void {
+            $sheet = $writer->addWorksheet('S');
+            $sheet->writeRows([['a'], [1], [2]]);
+            $sheet->addTable(new Table(1, 1, 2, 1, columns: ['a'], style: TableStyle::custom(' Brand & "Co" <Ü> ')));
+            $sheet->addTable(new Table(10, 1, 11, 1, headerRow: false, style: TableStyle::custom('TableStyleMedium9')));
+            $sheet->addTable(new Table(20, 1, 21, 1, headerRow: false, style: TableStyle::custom(\str_repeat('é', 255))));
+            $sheet->addTable(new Table(30, 1, 31, 1, headerRow: false, style: TableStyle::custom('Brand_x0041__x005F_')));
+        });
+
+        $t1 = $this->part($bytes, 'xl/tables/table1.xml');
+        self::assertStringContainsString('<tableStyleInfo name=" Brand &amp; &quot;Co&quot; &lt;Ü&gt; " showFirstColumn="0"', $t1);
+        $doc = new \DOMDocument();
+        self::assertTrue($doc->loadXML($t1));
+        self::assertSame(' Brand & "Co" <Ü> ', $doc->getElementsByTagName('tableStyleInfo')->item(0)?->getAttribute('name'));
+        self::assertStringContainsString('<tableStyleInfo name="TableStyleMedium9" ', $this->part($bytes, 'xl/tables/table2.xml'));
+        self::assertStringContainsString('<tableStyleInfo name="' . \str_repeat('é', 255) . '" ', $this->part($bytes, 'xl/tables/table3.xml'));
+        self::assertStringContainsString('<tableStyleInfo name="Brand_x0041__x005F_" ', $this->part($bytes, 'xl/tables/table4.xml'));
+    }
+
     public function testTableValidation(): void
     {
         $writer = Writer::inMemory();
@@ -177,6 +202,14 @@ final class OutlineTableAutoFitTest extends XlsxTestCase
         $rejects(InvalidTableNameException::class, static fn() => $sheet->addTable($t(3, 1, columns: ['a'], name: 'my table')), 'space');
         $rejects(InvalidArgumentException::class, static fn() => TableStyle::medium(29), 'style number');
         $rejects(InvalidArgumentException::class, static fn() => TableStyle::light(0), 'style number');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom(''), 'empty style name');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom(\str_repeat('x', 256)), 'long style name');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom(\str_repeat('😀', 128)), 'long style name in UTF-16');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom("Two\nLines"), 'line feed in style name');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom("Tab\tStyle"), 'tab in style name');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom("Bell\x07"), 'control character in style name');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom("\xEF\xBF\xBF"), 'non-character in style name');
+        $rejects(InvalidArgumentException::class, static fn() => TableStyle::custom("\xFF"), 'invalid UTF-8 in style name');
 
         $sheet->addTable($t(3, 1, columns: ['a'], name: 'Data'));
         $rejects(OverlappingRangeException::class, static fn() => $sheet->addTable(new Table(3, 1, 5, 1, columns: ['b'])), 'overlap');

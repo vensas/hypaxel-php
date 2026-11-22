@@ -125,7 +125,7 @@ final readonly class TableDefinition
                 . \str_replace(["\n", "\r", "\t"], ['_x000A_', '_x000D_', '_x0009_'], Xml::escape($column)) . '"/>';
         }
 
-        return $x . '</tableColumns><tableStyleInfo' . ($t->style->name === null ? '' : ' name="' . $t->style->name . '"')
+        return $x . '</tableColumns><tableStyleInfo' . ($t->style->name === null ? '' : ' name="' . \htmlspecialchars($t->style->name, \ENT_COMPAT | \ENT_XML1, 'UTF-8') . '"')
             . ' showFirstColumn="' . (int) $t->highlightFirstColumn . '" showLastColumn="' . (int) $t->highlightLastColumn
             . '" showRowStripes="' . (int) $t->rowStripes . '" showColumnStripes="' . (int) $t->columnStripes . '"/></table>';
     }

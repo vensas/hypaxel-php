@@ -310,7 +310,7 @@ one (`headerRow: false`) the columns are named `Column1`, `Column2`, ... unless 
 | --- | --- | --- |
 | `name` | `Table1`, `Table2`, ... | Unique in the workbook (case-insensitive); letters, digits, `_`, `.`, no cell references such as `A1` or `R1C1` |
 | `columns` | | Column names: unique, 1-255 characters, one per column of the range |
-| `style` | `TableStyle::default()` (Medium 2) | `TableStyle::none()`, `light(1..21)`, `medium(1..28)`, `dark(1..11)` |
+| `style` | `TableStyle::default()` (Medium 2) | `TableStyle::none()`, `light(1..21)`, `medium(1..28)`, `dark(1..11)`, or `custom('Name')` for a custom style defined in the workbook (1-255 characters, single line; written as given) |
 | `headerRow`, `autoFilter`, `rowStripes` | `true` | Header row, its filter buttons, banded rows |
 | `columnStripes`, `highlightFirstColumn`, `highlightLastColumn` | `false` | Banded columns, emphasized first/last column |
 
